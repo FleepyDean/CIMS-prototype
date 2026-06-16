@@ -185,8 +185,7 @@ function navigateTo(viewName) {
         staff: 'Staff Directory',
         settings: 'Settings',
         authorization: 'High-Value Authorization',
-        quality: 'Quality & Audit',
-        sterilization: 'Equipment Sterilization'
+        quality: 'Restock Warning'
     };
     els.pageTitle().textContent = titles[viewName] || viewName;
 
@@ -498,45 +497,6 @@ function rejectRequest(requestId) {
     }
 }
 
-// Subsystem 3: Quality & Audit Handlers
-
-// Open Resolve Modal with discrepancy details
-function openResolveModal(discrepancyId) {
-    const disc = DB.getDiscrepancies().find(d => d.id === discrepancyId);
-    if (disc) {
-        document.getElementById('resolve-item-name').textContent = disc.item;
-        document.getElementById('resolve-discrepancy-modal').setAttribute('data-disc-id', discrepancyId);
-        showModal('resolve-discrepancy-modal');
-    }
-}
-
-// Resolve and Override Discrepancy (UC3.4)
-function resolveAndOverride() {
-    const modal = document.getElementById('resolve-discrepancy-modal');
-    const discrepancyId = modal.getAttribute('data-disc-id');
-    const reason = document.getElementById('resolve-reason').value;
-    const details = document.getElementById('resolve-details').value;
-    
-    if (!reason) {
-        showToast('Please select a reason', 'error');
-        return;
-    }
-    
-    const disc = DB.resolveDiscrepancy(discrepancyId);
-    if (disc) {
-        showToast(`Discrepancy ${discrepancyId} resolved - ${reason}`, 'success');
-        hideModal('resolve-discrepancy-modal');
-        
-        // Reset form
-        document.getElementById('resolve-reason').value = 'unlogged';
-        document.getElementById('resolve-details').value = '';
-        
-        // Refresh view
-        if (AppState.currentView === 'quality') {
-            navigateTo('quality');
-        }
-    }
-}
 
 // Subsystem 3: Asset Sterilization Handlers
 
@@ -600,6 +560,239 @@ function logNewAsset() {
     }
 }
 
+// Log new waste disposal (Pharmacist)
+function logNewWaste() {
+    const itemSelect = document.getElementById('waste-item');
+    const qty = document.getElementById('waste-qty').value;
+    const reason = document.getElementById('waste-reason').value;
+    const method = document.getElementById('waste-method').value;
+    const notes = document.getElementById('waste-notes').value;
+    
+    if (!itemSelect.value || !qty || !reason || !method) {
+        showToast('Please fill in all required fields', 'error');
+        return;
+    }
+    
+    const itemName = itemSelect.options[itemSelect.selectedIndex].dataset.name;
+    const itemId = itemSelect.value;
+    
+    const newLog = {
+        disposalId: `DSP-${Date.now().toString().slice(-4)}`,
+        item: itemName,
+        reason: reason,
+        method: method,
+        status: 'Pending Approval',
+        date: new Date().toISOString().split('T')[0],
+        notes: notes,
+        itemId: itemId,
+        quantity: parseInt(qty)
+    };
+    
+    // Add to data
+    if (DB && DB.addDisposalLog) {
+        DB.addDisposalLog(newLog);
+    } else if (CIMS_DB && CIMS_DB.disposal && CIMS_DB.disposal.logs) {
+        CIMS_DB.disposal.logs.unshift(newLog);
+    }
+    
+    showToast(`Waste log ${newLog.disposalId} submitted for approval`, 'success');
+    hideModal('log-waste-modal');
+    
+    // Reset form
+    document.getElementById('waste-item').value = '';
+    document.getElementById('waste-qty').value = '1';
+    document.getElementById('waste-reason').value = '';
+    document.getElementById('waste-method').value = '';
+    document.getElementById('waste-notes').value = '';
+    
+    // Refresh view
+    if (AppState.currentView === 'disposal') {
+        navigateTo('disposal');
+    }
+}
+
+// Open Edit Disposal Modal (Manager)
+function openEditDisposalModal(disposalId) {
+    const disposal = CIMS_DB.disposal.logs.find(l => l.disposalId === disposalId);
+    if (!disposal) {
+        showToast('Disposal log not found', 'error');
+        return;
+    }
+    
+    // Populate form fields
+    document.getElementById('edit-disposal-id').value = disposal.disposalId;
+    document.getElementById('edit-disposal-item').value = disposal.item;
+    document.getElementById('edit-disposal-qty').value = disposal.quantity || 1;
+    document.getElementById('edit-disposal-reason').value = disposal.reason;
+    document.getElementById('edit-disposal-method').value = disposal.method;
+    document.getElementById('edit-disposal-status').value = disposal.status;
+    document.getElementById('edit-disposal-notes').value = disposal.notes || '';
+    
+    showModal('edit-disposal-modal');
+}
+
+// Save Disposal Edit (Manager)
+function saveDisposalEdit() {
+    const disposalId = document.getElementById('edit-disposal-id').value;
+    const qty = document.getElementById('edit-disposal-qty').value;
+    const reason = document.getElementById('edit-disposal-reason').value;
+    const method = document.getElementById('edit-disposal-method').value;
+    const status = document.getElementById('edit-disposal-status').value;
+    const notes = document.getElementById('edit-disposal-notes').value;
+    
+    if (!qty || !reason || !method || !status) {
+        showToast('Please fill in all required fields', 'error');
+        return;
+    }
+    
+    const log = CIMS_DB.disposal.logs.find(l => l.disposalId === disposalId);
+    if (log) {
+        log.quantity = parseInt(qty);
+        log.reason = reason;
+        log.method = method;
+        log.status = status;
+        log.notes = notes;
+        
+        showToast(`Disposal log ${disposalId} updated successfully`, 'success');
+        hideModal('edit-disposal-modal');
+        
+        // Refresh view
+        if (AppState.currentView === 'disposal') {
+            navigateTo('disposal');
+        }
+    }
+}
+
+// Delete Disposal Log (Manager)
+function deleteDisposalLog(disposalId) {
+    if (!confirm(`Are you sure you want to delete disposal log ${disposalId}?`)) {
+        return;
+    }
+    
+    const index = CIMS_DB.disposal.logs.findIndex(l => l.disposalId === disposalId);
+    if (index > -1) {
+        CIMS_DB.disposal.logs.splice(index, 1);
+        showToast(`Disposal log ${disposalId} deleted successfully`, 'success');
+        
+        // Refresh view
+        if (AppState.currentView === 'disposal') {
+            navigateTo('disposal');
+        }
+    }
+}
+
+// Generate Disposal Report (Manager)
+function generateDisposalReport() {
+    const disposal = CIMS_DB.disposal;
+    const logs = disposal.logs;
+    
+    // Calculate statistics
+    const pendingCount = logs.filter(l => l.status === 'Pending Approval').length;
+    const completedCount = logs.filter(l => l.status === 'Completed').length;
+    
+    // Calculate breakdown by reason
+    const reasonBreakdown = {};
+    logs.forEach(log => {
+        reasonBreakdown[log.reason] = (reasonBreakdown[log.reason] || 0) + 1;
+    });
+    
+    // Update modal with data
+    document.getElementById('report-period').textContent = disposal.summary.period;
+    document.getElementById('report-total-loss').textContent = disposal.summary.totalLoss;
+    document.getElementById('report-pending').textContent = pendingCount;
+    document.getElementById('report-completed').textContent = completedCount;
+    
+    // Render reason breakdown
+    const breakdownContainer = document.getElementById('report-reason-breakdown');
+    breakdownContainer.innerHTML = Object.entries(reasonBreakdown).map(([reason, count]) => {
+        const colorClass = reason === 'Expired' ? 'bg-red-100 text-red-700' : 
+                          reason === 'Contamination' ? 'bg-orange-100 text-orange-700' : 
+                          'bg-blue-100 text-blue-700';
+        return `
+            <div class="flex items-center justify-between p-3 bg-white border rounded-lg">
+                <span class="px-2 py-1 ${colorClass} rounded text-xs font-medium">${reason}</span>
+                <span class="font-semibold text-gray-900">${count} item(s)</span>
+            </div>
+        `;
+    }).join('');
+    
+    // Render logs table
+    const logsTable = document.getElementById('report-logs-table');
+    logsTable.innerHTML = logs.map(log => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-3 py-2 font-medium text-gray-900">${log.disposalId}</td>
+            <td class="px-3 py-2 text-gray-700">${log.item}</td>
+            <td class="px-3 py-2"><span class="px-2 py-1 ${log.reason === 'Expired' ? 'bg-red-100 text-red-700' : log.reason === 'Contamination' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'} rounded text-xs">${log.reason}</span></td>
+            <td class="px-3 py-2"><span class="px-2 py-1 ${log.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'} rounded text-xs">${log.status}</span></td>
+        </tr>
+    `).join('');
+    
+    showModal('disposal-report-modal');
+}
+
+// Download Disposal Report as CSV
+function downloadDisposalReportCSV() {
+    const disposal = CIMS_DB.disposal;
+    const logs = disposal.logs;
+    
+    // CSV Header
+    let csv = 'Disposal ID,Item,Reason,Method,Status,Date,Quantity,Notes\n';
+    
+    // CSV Rows
+    logs.forEach(log => {
+        const notes = (log.notes || '').replace(/"/g, '""');
+        csv += `"${log.disposalId}","${log.item}","${log.reason}","${log.method}","${log.status}","${log.date}",${log.quantity || 1},"${notes}"\n`;
+    });
+    
+    // Add summary
+    csv += `\n"Summary","Period: ${disposal.summary.period}"\n`;
+    csv += `"Total Loss","${disposal.summary.totalLoss}"\n`;
+    
+    // Create download link
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `disposal_report_${disposal.summary.period.replace(/\s+/g, '_')}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showToast('Report downloaded successfully', 'success');
+}
+
+// Trigger Emergency Restock Request
+function triggerEmergencyRestock() {
+    const urgency = document.getElementById('restock-urgency').value;
+    const item = document.getElementById('restock-item').value;
+    const qty = document.getElementById('restock-qty').value;
+    const supplier = document.getElementById('restock-supplier').value;
+    const justification = document.getElementById('restock-justification').value;
+    
+    if (!urgency || !item || !qty || !justification) {
+        showToast('Please fill in all required fields', 'error');
+        return;
+    }
+    
+    const selectedItem = DB.getInventory ? DB.getInventory().find(i => (i.id || i.batchId) === item) : null;
+    const itemName = selectedItem ? selectedItem.itemName : item;
+    
+    const requestId = `EMR-${Date.now().toString().slice(-4)}`;
+    
+    showToast(`Emergency restock ${requestId} triggered for ${itemName}`, 'success');
+    hideModal('emergency-restock-modal');
+    
+    // Reset form
+    document.getElementById('restock-urgency').value = 'critical';
+    document.getElementById('restock-item').value = '';
+    document.getElementById('restock-qty').value = '100';
+    document.getElementById('restock-supplier').value = '';
+    document.getElementById('restock-justification').value = '';
+}
+
 // Global exports for inline event handlers
 window.showToast = showToast;
 window.showModal = showModal;
@@ -611,11 +804,13 @@ window.verifyAndDeduct = verifyAndDeduct;
 window.submitAuthorization = submitAuthorization;
 window.authorizeRelease = authorizeRelease;
 window.rejectRequest = rejectRequest;
-window.openResolveModal = openResolveModal;
-window.resolveAndOverride = resolveAndOverride;
-window.moveToAutoclave = moveToAutoclave;
-window.markAvailable = markAvailable;
-window.logNewAsset = logNewAsset;
+window.logNewWaste = logNewWaste;
+window.openEditDisposalModal = openEditDisposalModal;
+window.saveDisposalEdit = saveDisposalEdit;
+window.deleteDisposalLog = deleteDisposalLog;
+window.generateDisposalReport = generateDisposalReport;
+window.downloadDisposalReportCSV = downloadDisposalReportCSV;
+window.triggerEmergencyRestock = triggerEmergencyRestock;
 window.navigateTo = navigateTo;
 window.AppState = AppState;
 

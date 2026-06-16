@@ -274,7 +274,7 @@ const Views = {
             <div class="bg-white rounded-xl border border-gray-200">
                 <div class="p-6 border-b border-gray-200 flex items-center justify-between">
                     <div><h3 class="font-semibold text-gray-900">Disposal & Wastage Logs</h3></div>
-                    ${role === 'manager' ? `<button onclick="showToast('Report generated', 'success')" class="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-900"><i class="fas fa-file-download mr-2"></i>Generate Report</button>` : `<button onclick="showToast('Log waste form', 'info')" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700"><i class="fas fa-plus mr-2"></i>Log Waste</button>`}
+                    ${role === 'manager' ? `<button onclick="generateDisposalReport()" class="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-900"><i class="fas fa-file-download mr-2"></i>Generate Report</button>` : `<button onclick="showModal('log-waste-modal')" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700"><i class="fas fa-plus mr-2"></i>Log Waste</button>`}
                 </div>
                 <div class="p-6">
                     <div class="flex items-center justify-between mb-4">
@@ -282,15 +282,20 @@ const Views = {
                         <div class="text-right"><p class="text-xs text-gray-500">Total Loss</p><p class="text-xl font-bold text-red-600">${disposal.summary.totalLoss}</p></div>
                     </div>
                     <table class="w-full">
-                        <thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Disposal ID</th><th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Item</th><th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Reason</th><th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th></tr></thead>
+                        <thead class="bg-gray-50"><tr><th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Disposal ID</th><th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Item</th><th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Reason</th><th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Status</th>${role === 'manager' ? '<th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Actions</th>' : ''}</tr></thead>
                         <tbody class="divide-y divide-gray-200">
                             ${disposal.logs.map(log => `
-                                <tr class="hover:bg-gray-50"><td class="px-4 py-3 text-sm font-medium text-gray-900">${log.disposalId}</td><td class="px-4 py-3 text-sm text-gray-700">${log.item}</td><td class="px-4 py-3"><span class="px-2 py-1 ${log.reason === 'Expired' ? 'bg-red-100 text-red-700' : log.reason === 'Contamination' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'} rounded text-xs">${log.reason}</span></td><td class="px-4 py-3"><span class="px-2 py-1 ${log.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'} rounded text-xs">${log.status}</span></td></tr>
+                                <tr class="hover:bg-gray-50"><td class="px-4 py-3 text-sm font-medium text-gray-900">${log.disposalId}</td><td class="px-4 py-3 text-sm text-gray-700">${log.item}</td><td class="px-4 py-3"><span class="px-2 py-1 ${log.reason === 'Expired' ? 'bg-red-100 text-red-700' : log.reason === 'Contamination' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'} rounded text-xs">${log.reason}</span></td><td class="px-4 py-3"><span class="px-2 py-1 ${log.status === 'Completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'} rounded text-xs">${log.status}</span></td>${role === 'manager' ? `<td class="px-4 py-3"><div class="flex gap-2"><button onclick="openEditDisposalModal('${log.disposalId}')" class="text-blue-600 hover:text-blue-800" title="Edit"><i class="fas fa-edit"></i></button><button onclick="deleteDisposalLog('${log.disposalId}')" class="text-red-600 hover:text-red-800" title="Delete"><i class="fas fa-trash-alt"></i></button></div></td>` : ''}</tr>
                             `).join('')}
                         </tbody>
                     </table>
                 </div>
-            </div>`;
+            </div>
+
+            ${Views.logWasteModal()}
+            ${role === 'manager' ? Views.editDisposalModal() : ''}
+            ${role === 'manager' ? Views.disposalReportModal() : ''}
+        `;
     },
 
     staff: (role) => {
@@ -673,25 +678,23 @@ const Views = {
             </div>`;
     },
 
-    // Subsystem 3: Quality & Audit
+    // Subsystem 3: Restock Warning
     quality: (role) => {
-        const discrepancies = DB.getDiscrepancies ? DB.getDiscrepancies() : [];
         const expiryItems = DB.getInventory ? DB.getInventory().filter(i => {
             const daysToExpiry = Math.ceil((new Date(i.expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
             return daysToExpiry <= 10 && daysToExpiry > 0;
         }) : [];
+        const lowStockItems = DB.getInventory ? DB.getInventory().filter(i => i.quantity <= 50 || i.status === 'Low Stock') : [];
 
         return `
             <!-- Header -->
             <div class="mb-6">
                 <div class="flex items-center justify-between">
                     <div>
-                        <h2 class="text-xl font-semibold text-gray-900">Quality & Audit</h2>
-                        <p class="text-sm text-gray-500 mt-1">Manage expiry, waste, and resolve physical vs system discrepancies.</p>
+                        <h2 class="text-xl font-semibold text-gray-900">Restock Warning</h2>
+                        <p class="text-sm text-gray-500 mt-1">Manage expiry flags, low stock alerts, and emergency restocking.</p>
                     </div>
-                    <button onclick="showModal('resolve-discrepancy-modal')" class="bg-amber-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-600 flex items-center gap-2">
-                        <i class="fas fa-balance-scale"></i>Resolve Discrepancy
-                    </button>
+                    
                 </div>
             </div>
 
@@ -714,7 +717,7 @@ const Views = {
                                         <p class="text-xs text-red-600 mt-1">Expires in ${daysLeft} Day(s)!</p>
                                     </div>
                                     <button onclick="showToast('Waste logging opened', 'info')" class="px-3 py-1.5 bg-white border border-red-200 text-red-700 text-xs font-medium rounded hover:bg-red-50">
-                                        Log Waste (UC3.2)
+                                        Log Waste
                                     </button>
                                 </div>
                             `;
@@ -722,193 +725,329 @@ const Views = {
                     </div>
                 </div>
 
-                <!-- UC3.4: Active Discrepancies -->
+                <!-- Low Stock Alerts -->
                 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div class="px-6 py-4 border-b border-amber-100 bg-amber-50 flex items-center gap-2">
-                        <i class="fas fa-exclamation-triangle text-amber-600"></i>
-                        <h3 class="font-semibold text-gray-900">Active Discrepancies</h3>
+                        <i class="fas fa-box-open text-amber-600"></i>
+                        <h3 class="font-semibold text-gray-900">Low Stock Alerts</h3>
+                        <span class="ml-auto text-xs bg-amber-200 text-amber-800 px-2 py-1 rounded-full font-semibold">${lowStockItems.length} items</span>
                     </div>
-                    <div class="p-6">
-                        ${discrepancies.length === 0 ? `
-                            <div class="text-center py-4">
-                                <i class="fas fa-check-circle text-green-500 text-2xl mb-2"></i>
-                                <p class="text-sm text-gray-500">No active discrepancies</p>
-                            </div>
-                        ` : discrepancies.map(disc => `
-                            <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
-                                <div class="flex items-center justify-between mb-3">
-                                    <h4 class="font-medium text-gray-900">${disc.item}</h4>
-                                    <span class="text-xs font-mono bg-amber-200 text-amber-800 px-2 py-1 rounded">Audit Fail</span>
+                    <div class="p-6 space-y-4 max-h-[400px] overflow-y-auto">
+                        ${lowStockItems.length === 0 ? `
+                            <p class="text-sm text-gray-500 text-center py-4">No low stock items</p>
+                        ` : lowStockItems.map(item => `
+                            <div class="flex items-center justify-between p-4 bg-amber-50 border border-amber-100 rounded-lg">
+                                <div>
+                                    <p class="font-medium text-gray-900">${item.itemName}</p>
+                                    <p class="text-xs text-amber-600 mt-1">Only ${item.quantity} units remaining</p>
                                 </div>
-                                <div class="flex items-center gap-4 text-sm mb-3">
-                                    <span class="text-gray-600">Sys: <span class="font-semibold text-gray-900">${disc.systemQty}</span></span>
-                                    <span class="text-gray-600">Physical: <span class="font-semibold text-gray-900">${disc.physicalQty}</span></span>
-                                    <span class="text-red-600 font-semibold">Diff: ${disc.difference > 0 ? '+' : ''}${disc.difference}</span>
-                                </div>
-                                <button onclick="openResolveModal('${disc.id}')" class="w-full bg-amber-600 text-white py-2 rounded-lg font-medium hover:bg-amber-700">
-                                    Submit Investigation Note
-                                </button>
+                                <span class="text-xs font-medium ${item.quantity < 20 ? 'text-red-600 bg-red-100' : 'text-amber-600 bg-amber-100'} px-2 py-1 rounded">
+                                    ${item.quantity < 20 ? 'CRITICAL' : 'LOW'}
+                                </span>
                             </div>
                         `).join('')}
                     </div>
                 </div>
             </div>
 
-            ${Views.resolveDiscrepancyModal()}`;
+            ${Views.emergencyRestockModal()}`;
     },
 
-    // Modal: Resolve Discrepancy (UC3.4)
-    resolveDiscrepancyModal: () => {
+    // Modal: Emergency Restock
+    emergencyRestockModal: () => {
+        const inventory = DB.getInventory ? DB.getInventory() : [];
+        const suppliers = DB.getSuppliers ? DB.getSuppliers() : [];
         return `
-            <div id="resolve-discrepancy-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-                    <div class="bg-amber-500 px-6 py-4 flex items-center justify-between">
-                        <h3 class="text-white font-semibold text-lg"><i class="fas fa-balance-scale mr-2"></i>Resolve Discrepancy</h3>
-                        <button onclick="hideModal('resolve-discrepancy-modal')" class="text-white hover:text-amber-200 transition">
+            <div id="emergency-restock-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+                    <!-- Modal Header -->
+                    <div class="bg-red-600 px-6 py-4 flex items-center justify-between">
+                        <h3 class="text-white font-semibold text-lg"><i class="fas fa-exclamation-circle mr-2"></i>Emergency Restock</h3>
+                        <button onclick="hideModal('emergency-restock-modal')" class="text-white hover:text-red-200 transition">
                             <i class="fas fa-times text-xl"></i>
                         </button>
                     </div>
+                    
+                    <!-- Modal Body -->
                     <div class="p-6 space-y-5">
-                        <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                            <p class="font-medium text-gray-900" id="resolve-item-name">Bandages (Box)</p>
-                            <div class="flex gap-4 text-sm mt-2">
-                                <span class="text-gray-600">Sys: <span class="text-rose-600 font-semibold">50</span></span>
-                                <span class="text-gray-600">Phys: <span class="text-rose-600 font-semibold">48</span></span>
-                                <span class="text-red-600 font-semibold">Diff: -2</span>
-                            </div>
-                        </div>
+                        <!-- Urgency Level -->
                         <div>
-                            <label class="block text-xs font-semibold text-gray-500 uppercase mb-2">Investigation Note / Reason</label>
-                            <select id="resolve-reason" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
-                                <option value="unlogged">Unlogged Internal Usage (Human Error)</option>
-                                <option value="damage">Damaged/Unusable Stock</option>
-                                <option value="theft">Theft/Unauthorized Removal</option>
-                                <option value="data">Data Entry Error</option>
-                                <option value="other">Other</option>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Urgency Level <span class="text-red-500">*</span></label>
+                            <select id="restock-urgency" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-red-500">
+                                <option value="critical">Critical - Immediate (24h)</option>
+                                <option value="high">High - Urgent (48h)</option>
+                                <option value="medium">Medium - Priority (72h)</option>
                             </select>
                         </div>
+                        
+                        <!-- Select Item -->
                         <div>
-                            <textarea id="resolve-details" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" rows="3" placeholder="Additional details..."></textarea>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Item Required <span class="text-red-500">*</span></label>
+                            <select id="restock-item" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-red-500">
+                                <option value="">Select item...</option>
+                                ${inventory.filter(i => i.quantity <= 100).map(item => `<option value="${item.id || item.batchId}">${item.itemName} (${item.quantity} left)</option>`).join('')}
+                            </select>
                         </div>
-                        <button onclick="resolveAndOverride()" class="w-full bg-amber-500 text-white py-3 rounded-lg font-semibold hover:bg-amber-600">
-                            OVERRIDE & RESOLVE
+                        
+                        <!-- Quantity Needed -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Quantity Needed <span class="text-red-500">*</span></label>
+                            <input type="number" id="restock-qty" min="1" value="100" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-red-500">
+                        </div>
+                        
+                        <!-- Preferred Supplier -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Preferred Supplier</label>
+                            <select id="restock-supplier" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-red-500">
+                                <option value="">Any available supplier...</option>
+                                ${suppliers.map(s => `<option value="${s}">${s}</option>`).join('')}
+                            </select>
+                        </div>
+                        
+                        <!-- Justification -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Justification / Reason <span class="text-red-500">*</span></label>
+                            <textarea id="restock-justification" rows="3" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-red-500" placeholder="Explain why this item needs emergency restocking..."></textarea>
+                        </div>
+                    </div>
+                    
+                    <!-- Modal Footer -->
+                    <div class="px-6 pb-6">
+                        <button onclick="triggerEmergencyRestock()" class="w-full bg-red-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-red-700 transition shadow-lg shadow-red-200">
+                            <i class="fas fa-paper-plane mr-2"></i>TRIGGER EMERGENCY REQUEST
                         </button>
                     </div>
                 </div>
             </div>`;
     },
 
-    // Subsystem 3: Asset Sterilization (UC3.5)
-    sterilization: (role) => {
-        const assets = DB.getSterilizationAssets ? DB.getSterilizationAssets() : [];
-        const contaminated = assets.filter(a => a.status === 'contaminated');
-        const autoclave = assets.filter(a => a.status === 'autoclave');
-        const available = assets.filter(a => a.status === 'available');
-
+    // Modal: Log Waste Form (Pharmacist)
+    logWasteModal: () => {
+        const inventory = DB.getInventory ? DB.getInventory() : [];
         return `
-            <!-- Header -->
-            <div class="mb-6">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h2 class="text-xl font-semibold text-gray-900">Equipment Sterilization</h2>
-                        <p class="text-sm text-gray-500 mt-1">Track maintenance lifecycle of reusable clinical assets.</p>
-                    </div>
-                    <button onclick="showModal('log-asset-modal')" class="bg-cyan-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-cyan-700 flex items-center gap-2">
-                        <i class="fas fa-plus"></i>Log Asset
-                    </button>
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <!-- Contaminated -->
-                <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div class="px-4 py-3 border-b border-red-100 bg-red-50">
-                        <h3 class="text-xs font-semibold text-red-700 uppercase tracking-wide"><i class="fas fa-biohazard mr-1"></i>Contaminated</h3>
-                    </div>
-                    <div class="p-4 space-y-3">
-                        ${contaminated.length === 0 ? `<p class="text-xs text-gray-400 text-center py-2">No items</p>` : contaminated.map(asset => `
-                            <div class="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
-                                <p class="font-medium text-gray-900 text-sm">${asset.name}</p>
-                                <p class="text-xs text-gray-500 mt-1">Used in: ${asset.location}</p>
-                                <button onclick="moveToAutoclave('${asset.id}')" class="w-full mt-3 bg-slate-100 text-slate-700 py-1.5 rounded text-xs font-medium hover:bg-slate-200 flex items-center justify-center gap-1">
-                                    Move to Autoclave <i class="fas fa-chevron-right text-xs"></i>
-                                </button>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-
-                <!-- In Autoclave -->
-                <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div class="px-4 py-3 border-b border-cyan-100 bg-cyan-50">
-                        <h3 class="text-xs font-semibold text-cyan-700 uppercase tracking-wide"><i class="fas fa-temperature-high mr-1"></i>In Autoclave</h3>
-                    </div>
-                    <div class="p-4 space-y-3">
-                        ${autoclave.length === 0 ? `<p class="text-xs text-gray-400 text-center py-2">No items</p>` : autoclave.map(asset => `
-                            <div class="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
-                                <p class="font-medium text-gray-900 text-sm">${asset.name}</p>
-                                <p class="text-xs text-gray-500 mt-1">Est. completion: 45 min</p>
-                                <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2">
-                                    <div class="bg-cyan-500 h-1.5 rounded-full" style="width: 60%"></div>
-                                </div>
-                                <button onclick="markAvailable('${asset.id}')" class="w-full mt-3 bg-cyan-50 text-cyan-700 py-1.5 rounded text-xs font-medium hover:bg-cyan-100 flex items-center justify-center gap-1">
-                                    Mark Available <i class="fas fa-arrow-right text-xs"></i>
-                                </button>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-
-                <!-- Available -->
-                <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div class="px-4 py-3 border-b border-green-100 bg-green-50">
-                        <h3 class="text-xs font-semibold text-green-700 uppercase tracking-wide"><i class="fas fa-check-circle mr-1"></i>Available</h3>
-                    </div>
-                    <div class="p-4 space-y-3">
-                        ${available.length === 0 ? `<p class="text-xs text-gray-400 text-center py-2">No items</p>` : available.map(asset => `
-                            <div class="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
-                                <p class="font-medium text-gray-900 text-sm">${asset.name}</p>
-                                <p class="text-xs text-gray-500 mt-1">Sterilized: ${asset.sterilizedAt}</p>
-                                <span class="inline-block mt-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">Ready for Checkout</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            </div>
-
-            ${Views.logAssetModal()}`;
-    },
-
-    // Modal: Log Asset (UC3.5)
-    logAssetModal: () => {
-        return `
-            <div id="log-asset-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-                    <div class="bg-cyan-600 px-6 py-4 flex items-center justify-between">
-                        <h3 class="text-white font-semibold text-lg"><i class="fas fa-syringe mr-2"></i>Log Reusable Asset</h3>
-                        <button onclick="hideModal('log-asset-modal')" class="text-white hover:text-cyan-200 transition">
+            <div id="log-waste-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+                    <!-- Modal Header -->
+                    <div class="bg-blue-600 px-6 py-4 flex items-center justify-between">
+                        <h3 class="text-white font-semibold text-lg"><i class="fas fa-trash-alt mr-2"></i>Log Waste Form</h3>
+                        <button onclick="hideModal('log-waste-modal')" class="text-white hover:text-blue-200 transition">
                             <i class="fas fa-times text-xl"></i>
                         </button>
                     </div>
+                    
+                    <!-- Modal Body -->
                     <div class="p-6 space-y-5">
+                        <!-- Select Item -->
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Asset Name</label>
-                            <input type="text" id="asset-name" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="e.g., Surgical Forceps Set C">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Current Location</label>
-                            <input type="text" id="asset-location" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="e.g., OR-2">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                            <select id="asset-status" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
-                                <option value="contaminated">Contaminated (Used)</option>
-                                <option value="autoclave">In Autoclave (Sterilizing)</option>
-                                <option value="available">Available (Sterile)</option>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Item <span class="text-red-500">*</span></label>
+                            <select id="waste-item" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500">
+                                <option value="">Select item...</option>
+                                ${inventory.map(item => `<option value="${item.id}" data-name="${item.itemName}">${item.itemName} (${item.quantity} in stock)</option>`).join('')}
                             </select>
                         </div>
-                        <button onclick="logNewAsset()" class="w-full bg-cyan-600 text-white py-3 rounded-lg font-semibold hover:bg-cyan-700">
-                            LOG
+                        
+                        <!-- Quantity -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Quantity to Dispose <span class="text-red-500">*</span></label>
+                            <input type="number" id="waste-qty" min="1" value="1" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        
+                        <!-- Reason -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Reason <span class="text-red-500">*</span></label>
+                            <select id="waste-reason" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500">
+                                <option value="">Select reason...</option>
+                                <option value="Expired">Expired</option>
+                                <option value="Contamination">Contamination</option>
+                                <option value="Cold Chain Breach">Cold Chain Breach</option>
+                                <option value="Damaged">Damaged</option>
+                                <option value="Spillage">Spillage</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Disposal Method -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Disposal Method <span class="text-red-500">*</span></label>
+                            <select id="waste-method" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500">
+                                <option value="">Select method...</option>
+                                <option value="Incineration">Incineration</option>
+                                <option value="Hazardous Waste">Hazardous Waste</option>
+                                <option value="Biohazard Disposal">Biohazard Disposal</option>
+                                <option value="General Waste">General Waste</option>
+                                <option value="Recycling">Recycling</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Notes -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Additional Notes</label>
+                            <textarea id="waste-notes" rows="3" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-blue-500" placeholder="Optional details about the wastage..."></textarea>
+                        </div>
+                    </div>
+                    
+                    <!-- Modal Footer -->
+                    <div class="px-6 pb-6">
+                        <button onclick="logNewWaste()" class="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold text-lg hover:bg-blue-700 transition shadow-lg shadow-blue-200">
+                            <i class="fas fa-save mr-2"></i>SUBMIT LOG
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+    },
+
+    // Modal: Edit Disposal Log (Manager Only)
+    editDisposalModal: () => {
+        return `
+            <div id="edit-disposal-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+                    <!-- Modal Header -->
+                    <div class="bg-slate-800 px-6 py-4 flex items-center justify-between">
+                        <h3 class="text-white font-semibold text-lg"><i class="fas fa-edit mr-2"></i>Edit Disposal Log</h3>
+                        <button onclick="hideModal('edit-disposal-modal')" class="text-white hover:text-slate-300 transition">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Modal Body -->
+                    <div class="p-6 space-y-5">
+                        <input type="hidden" id="edit-disposal-id">
+                        
+                        <!-- Item (Read-only) -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Item</label>
+                            <input type="text" id="edit-disposal-item" readonly class="w-full px-4 py-3 bg-gray-100 border border-gray-200 rounded-xl text-gray-600">
+                        </div>
+                        
+                        <!-- Quantity -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Quantity <span class="text-red-500">*</span></label>
+                            <input type="number" id="edit-disposal-qty" min="1" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-slate-500">
+                        </div>
+                        
+                        <!-- Reason -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Reason <span class="text-red-500">*</span></label>
+                            <select id="edit-disposal-reason" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-slate-500">
+                                <option value="Expired">Expired</option>
+                                <option value="Contamination">Contamination</option>
+                                <option value="Cold Chain Breach">Cold Chain Breach</option>
+                                <option value="Damaged">Damaged</option>
+                                <option value="Spillage">Spillage</option>
+                                <option value="Other">Other</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Disposal Method -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Disposal Method <span class="text-red-500">*</span></label>
+                            <select id="edit-disposal-method" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-slate-500">
+                                <option value="Incineration">Incineration</option>
+                                <option value="Hazardous Waste">Hazardous Waste</option>
+                                <option value="Biohazard Disposal">Biohazard Disposal</option>
+                                <option value="General Waste">General Waste</option>
+                                <option value="Recycling">Recycling</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Status -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Status <span class="text-red-500">*</span></label>
+                            <select id="edit-disposal-status" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-slate-500">
+                                <option value="Pending Approval">Pending Approval</option>
+                                <option value="Completed">Completed</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Notes -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Additional Notes</label>
+                            <textarea id="edit-disposal-notes" rows="3" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-gray-900 focus:ring-2 focus:ring-slate-500" placeholder="Optional details..."></textarea>
+                        </div>
+                    </div>
+                    
+                    <!-- Modal Footer -->
+                    <div class="px-6 pb-6">
+                        <button onclick="saveDisposalEdit()" class="w-full bg-slate-800 text-white py-4 rounded-xl font-semibold text-lg hover:bg-slate-900 transition shadow-lg shadow-slate-200">
+                            <i class="fas fa-save mr-2"></i>SAVE CHANGES
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+    },
+
+    // Modal: Disposal Report (Manager Only)
+    disposalReportModal: () => {
+        return `
+            <div id="disposal-report-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden">
+                    <!-- Modal Header -->
+                    <div class="bg-slate-800 px-6 py-4 flex items-center justify-between">
+                        <h3 class="text-white font-semibold text-lg"><i class="fas fa-file-alt mr-2"></i>Wastage & Disposal Report</h3>
+                        <button onclick="hideModal('disposal-report-modal')" class="text-white hover:text-slate-300 transition">
+                            <i class="fas fa-times text-xl"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Modal Body -->
+                    <div class="p-6 space-y-6 max-h-[60vh] overflow-y-auto">
+                        <!-- Report Period -->
+                        <div class="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
+                            <div>
+                                <p class="text-xs text-gray-500 uppercase">Reporting Period</p>
+                                <p class="text-lg font-semibold text-gray-900" id="report-period">February 2026</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-xs text-gray-500 uppercase">Generated On</p>
+                                <p class="text-sm font-medium text-gray-900" id="report-generated">${new Date().toLocaleDateString('en-GB')}</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Summary Cards -->
+                        <div class="grid grid-cols-3 gap-4">
+                            <div class="p-4 bg-red-50 rounded-xl border border-red-100">
+                                <p class="text-xs text-red-600 uppercase font-semibold">Total Loss</p>
+                                <p class="text-2xl font-bold text-red-700" id="report-total-loss">RM 14,250.00</p>
+                            </div>
+                            <div class="p-4 bg-amber-50 rounded-xl border border-amber-100">
+                                <p class="text-xs text-amber-600 uppercase font-semibold">Pending</p>
+                                <p class="text-2xl font-bold text-amber-700" id="report-pending">0</p>
+                            </div>
+                            <div class="p-4 bg-green-50 rounded-xl border border-green-100">
+                                <p class="text-xs text-green-600 uppercase font-semibold">Completed</p>
+                                <p class="text-2xl font-bold text-green-700" id="report-completed">0</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Breakdown by Reason -->
+                        <div>
+                            <h4 class="font-semibold text-gray-900 mb-3">Breakdown by Reason</h4>
+                            <div id="report-reason-breakdown" class="space-y-2">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                        
+                        <!-- All Logs Table -->
+                        <div>
+                            <h4 class="font-semibold text-gray-900 mb-3">All Disposal Logs</h4>
+                            <div class="border rounded-xl overflow-hidden">
+                                <table class="w-full text-sm">
+                                    <thead class="bg-slate-50"><tr><th class="px-3 py-2 text-left text-xs font-semibold text-gray-500">ID</th><th class="px-3 py-2 text-left text-xs font-semibold text-gray-500">Item</th><th class="px-3 py-2 text-left text-xs font-semibold text-gray-500">Reason</th><th class="px-3 py-2 text-left text-xs font-semibold text-gray-500">Status</th></tr></thead>
+                                    <tbody id="report-logs-table" class="divide-y divide-gray-100">
+                                        <!-- Populated by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Modal Footer -->
+                    <div class="px-6 py-4 bg-gray-50 flex gap-3">
+                        <button onclick="downloadDisposalReportCSV()" class="flex-1 bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 transition">
+                            <i class="fas fa-file-csv mr-2"></i>Download CSV
+                        </button>
+                        <button onclick="hideModal('disposal-report-modal')" class="flex-1 bg-slate-800 text-white py-3 rounded-xl font-semibold hover:bg-slate-900 transition">
+                            <i class="fas fa-times mr-2"></i>Close
                         </button>
                     </div>
                 </div>

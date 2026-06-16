@@ -287,8 +287,8 @@ const CIMS_DB = {
     },
 
     permissions: {
-        manager: ['dashboard', 'procurement', 'allocation', 'expiry', 'disposal', 'staff', 'settings', 'authorization', 'quality', 'sterilization'],
-        pharmacist: ['dashboard', 'allocation', 'expiry', 'disposal', 'settings', 'quality', 'sterilization']
+        manager: ['dashboard', 'procurement', 'allocation', 'expiry', 'disposal', 'staff', 'settings', 'authorization', 'quality'],
+        pharmacist: ['dashboard', 'allocation', 'expiry', 'disposal', 'settings', 'quality']
     },
 
     // High-Value Authorization Requests (UC2.6)
@@ -303,106 +303,6 @@ const CIMS_DB = {
             justification: 'Severe trauma patient, requires immediate pain management post-surgery. Patient ID: PT-8821',
             requestedAt: '2024-06-15 14:30',
             status: 'pending'
-        }
-    ],
-
-    // Subsystem 3: Quality & Audit - UC3.4 Active Discrepancies
-    discrepancies: [
-        {
-            id: 'DISC-001',
-            item: 'Bandages (Box)',
-            systemQty: 50,
-            physicalQty: 48,
-            difference: -2,
-            status: 'active',
-            detectedAt: '2024-06-15 09:30'
-        },
-        {
-            id: 'DISC-002',
-            item: 'Surgical Masks N95',
-            systemQty: 200,
-            physicalQty: 185,
-            difference: -15,
-            status: 'active',
-            detectedAt: '2024-06-14 14:20'
-        },
-        {
-            id: 'DISC-003',
-            item: 'Disposable Syringes 5ml',
-            systemQty: 120,
-            physicalQty: 120,
-            difference: 0,
-            status: 'resolved',
-            detectedAt: '2024-06-13 11:00'
-        },
-        {
-            id: 'DISC-004',
-            item: 'Alcohol Swabs (Box)',
-            systemQty: 75,
-            physicalQty: 68,
-            difference: -7,
-            status: 'active',
-            detectedAt: '2024-06-16 08:45'
-        }
-    ],
-
-    // Subsystem 3: UC3.5 Equipment Sterilization
-    sterilizationAssets: [
-        {
-            id: 'STZ-001',
-            name: 'Surgical Scalpel Set A',
-            status: 'contaminated',
-            location: 'TR-1',
-            usedAt: '2024-06-15 10:00',
-            cycleTime: null
-        },
-        {
-            id: 'STZ-005',
-            name: 'Hemostat Clamps Set',
-            status: 'contaminated',
-            location: 'OR-2',
-            usedAt: '2024-06-15 09:30',
-            cycleTime: null
-        },
-        {
-            id: 'STZ-002',
-            name: 'Dental Drill Bits',
-            status: 'autoclave',
-            location: 'Sterilization Room',
-            cycleEnd: '2024-06-15 14:30',
-            usedAt: null
-        },
-        {
-            id: 'STZ-006',
-            name: 'Retractor Set Medium',
-            status: 'autoclave',
-            location: 'Sterilization Room',
-            cycleEnd: '2024-06-15 15:45',
-            usedAt: null
-        },
-        {
-            id: 'STZ-003',
-            name: 'Forceps Set B',
-            status: 'available',
-            location: 'Storage A',
-            sterilizedAt: '2024-06-15 08:00 AM',
-            usedAt: null
-        },
-        {
-            id: 'STZ-007',
-            name: 'Needle Holder Set',
-            status: 'available',
-            location: 'Storage B',
-            sterilizedAt: '2024-06-15 07:30 AM',
-            usedAt: null
-        },
-        {
-            id: 'STZ-008',
-            name: 'Scissors Set Surgical',
-            status: 'available',
-            location: 'Storage A',
-            sterilizedAt: '2024-06-15 06:45 AM',
-            usedAt: null
         }
     ]
 };
@@ -435,23 +335,18 @@ const DB = {
         if (request) request.status = status;
         return request;
     },
-    // Subsystem 3: Quality & Audit
-    getDiscrepancies: () => CIMS_DB.discrepancies.filter(d => d.status === 'active'),
-    resolveDiscrepancy: (discrepancyId) => {
-        const disc = CIMS_DB.discrepancies.find(d => d.id === discrepancyId);
-        if (disc) disc.status = 'resolved';
-        return disc;
-    },
-    // Subsystem 3: Sterilization
-    getSterilizationAssets: () => CIMS_DB.sterilizationAssets,
-    updateSterilizationStatus: (assetId, newStatus) => {
-        const asset = CIMS_DB.sterilizationAssets.find(a => a.id === assetId);
-        if (asset) {
-            asset.status = newStatus;
-            if (newStatus === 'available') {
-                asset.sterilizedAt = new Date().toLocaleString('en-GB');
+    // Disposal/Wastage
+    addDisposalLog: (log) => {
+        if (CIMS_DB && CIMS_DB.disposal && CIMS_DB.disposal.logs) {
+            CIMS_DB.disposal.logs.unshift(log);
+            // Update total loss (simplified calculation)
+            const item = CIMS_DB.inventory.find(i => i.id === log.itemId);
+            if (item && item.unitPrice) {
+                const loss = item.unitPrice * log.quantity;
+                const currentTotal = parseFloat(CIMS_DB.disposal.summary.totalLoss.replace(/[^0-9.]/g, ''));
+                CIMS_DB.disposal.summary.totalLoss = `RM ${(currentTotal + loss).toFixed(2)}`;
             }
         }
-        return asset;
+        return log;
     }
 };
